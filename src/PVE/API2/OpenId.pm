@@ -13,7 +13,6 @@ use PVE::Cluster qw(cfs_read_file cfs_write_file);
 use PVE::AccessControl;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::Auth::Plugin;
-use PVE::AccessControl qw(add_user_group);
 
 use PVE::RESTHandler;
 
