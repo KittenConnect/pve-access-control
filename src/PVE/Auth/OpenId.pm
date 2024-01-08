@@ -37,6 +37,18 @@ sub properties {
 	    type => 'boolean',
 	    default => 0,
 	},
+	"autocreate-groups" => {
+	    description => "Automatically create users if they do not exist.",
+	    optional => 1,
+	    type => 'boolean',
+	    default => 0,
+	},
+	"groups-filter" => {
+	    description => "Only allow users in these groups.",
+	    optional => 1,
+	    type => 'string',
+	    maxLength => 256,
+	},
 	"username-claim" => {
 	    description => "OpenID claim used to generate the unique username.",
 	    type => 'string',
@@ -61,7 +73,8 @@ sub properties {
 		."Authorization Server is being requested to use for the Auth Request.",
 	    type => 'string', # format => 'some-safe-id-list', # FIXME: TODO
 	    optional => 1,
-	},
+	},	
+	
    };
 }
 
@@ -71,12 +84,15 @@ sub options {
 	"client-id" => {},
 	"client-key" => { optional => 1 },
 	autocreate => { optional => 1 },
+	"autocreate-groups" => { optional => 1},
+	"groups-filter" => { optional => 1 },
 	"username-claim" => { optional => 1, fixed => 1 },
 	prompt => { optional => 1 },
 	scopes => { optional => 1 },
 	"acr-values" => { optional => 1 },
 	default => { optional => 1 },
 	comment => { optional => 1 },
+
     };
 }
 

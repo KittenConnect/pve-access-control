@@ -13,6 +13,7 @@ use PVE::Cluster qw(cfs_read_file cfs_write_file);
 use PVE::AccessControl;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::Auth::Plugin;
+use PVE::AccessControl qw(add_user_group);
 
 use PVE::RESTHandler;
 
@@ -35,6 +36,7 @@ my $lookup_openid_auth = sub {
 	issuer_url => $config->{'issuer-url'},
 	client_id => $config->{'client-id'},
 	client_key => $config->{'client-key'},
+	
     };
     $openid_config->{prompt} = $config->{'prompt'} if defined($config->{'prompt'});
 
@@ -150,6 +152,7 @@ __PACKAGE__->register_method ({
 	    CSRFPreventionToken => { type => 'string' },
 	    cap => { type => 'object' },  # computed api permissions
 	    clustername => { type => 'string', optional => 1 },
+		groups => get_standard_option('group-list'),
 	},
     },
     permissions => { user => 'world' },
@@ -190,6 +193,8 @@ __PACKAGE__->register_method ({
 	    }
 
 	    my $username = "${unique_name}\@${realm}";
+		
+
 
 	    # first, check if $username respects our naming conventions
 	    PVE::Auth::Plugin::verify_username($username);
@@ -210,16 +215,23 @@ __PACKAGE__->register_method ({
 		    if (defined(my $family_name = $info->{'family_name'})) {
 			$entry->{lastname} = $family_name;
 		    }
-
+			if (defined(my $groups = $info->{'groups'})) {
+				sync_group($username, $info, $config, $groups);
+			}
 		    $usercfg->{users}->{$username} = $entry;
-
 		    cfs_write_file("user.cfg", $usercfg);
 		}, "autocreate openid user failed");
 	    } else {
+			
+		if (defined(my $groups = $info->{'groups'})) {
+			my $usercfg = cfs_read_file("user.cfg");
+			sync_group($username, $info, $config, $groups);
+		}
 		# test if user exists and is enabled
 		$rpcenv->check_user_enabled($username);
 	    }
-
+		#check
+		
 	    my $ticket = PVE::AccessControl::assemble_ticket($username);
 	    my $csrftoken = PVE::AccessControl::assemble_csrf_prevention_token($username);
 	    my $cap = $rpcenv->compute_api_permission($username);
@@ -243,7 +255,69 @@ __PACKAGE__->register_method ({
 	    die PVE::Exception->new("authentication failure\n", code => 401);
 	}
 
-	PVE::Cluster::log_msg('info', 'root@pam', "successful openid auth for user '$res->{username}'");
-
+	PVE::Cluster::log_msg('info', 'root@pam', "successful authentication (OpenID) for user '$res->{username}'");
 	return $res;
     }});
+
+#function to create groups with lock user config and create group
+sub create_group {
+	my ($group, $comment) = @_;
+	my $param = {
+		groupid => $group,
+		comment => $comment,  
+		};
+	eval {
+	PVE::AccessControl::lock_user_config(
+	    sub {
+			
+		my $usercfg = cfs_read_file("user.cfg");
+
+		my $group = $param->{groupid};
+	
+		die "group '$group' already exists\n" 
+		    if $usercfg->{groups}->{$group};
+
+		$usercfg->{groups}->{$group} = { users => {} };
+
+		$usercfg->{groups}->{$group}->{comment} = $param->{comment} if $param->{comment};
+		
+		
+		cfs_write_file("user.cfg", $usercfg);
+	    }, "create group failed");
+	};
+}
+
+sub sync_group {
+ 	my ($username, $info, $config, $groups) = @_;
+	my $usercfg = cfs_read_file("user.cfg");
+	# First Check if the group name respects our naming conventions
+	my @filtered_groups = grep { /^[a-zA-Z0-9_\-]+$/ } @{$groups};
+	# Then add Add filter regex to check and check the regex is valid
+	my $filter_regex = $config->{'groups-filter'};
+	
+	if (defined($filter_regex)) {
+		eval { qr/$filter_regex/ };
+		if ($@) {
+			die "Invalid groups-filter regex: $@\n";
+		}
+		@filtered_groups = grep { /$filter_regex/ } @filtered_groups;
+	}
+	if (defined($config->{'autocreate-groups'})){
+
+		foreach my $group (@filtered_groups) {
+			
+			unless ($usercfg->{groups}->{$group}) {
+				
+				create_group($group, "Autocreated by OpenID Connect");					
+			}
+			PVE::AccessControl::add_user_group($username, $usercfg, $group);
+		};
+	}
+	else{
+		foreach my $group (@filtered_groups) {
+			PVE::AccessControl::add_user_group($username, $usercfg, $group);
+		};
+	}
+
+
+}
