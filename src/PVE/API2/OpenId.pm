@@ -285,7 +285,7 @@ sub create_group {
 	    }, "create group failed");
 	};
 }
-
+## function to sync groups waiting update to move without API2
 sub sync_group {
  	my ($username, $info, $config, $groups) = @_;
 	my $usercfg = cfs_read_file("user.cfg");
